@@ -4,139 +4,142 @@
   <meta charset="utf-8">
   <title>Emotion Reading Task</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <!-- SurveyJS (CDN) -->
   <link rel="stylesheet" href="https://unpkg.com/survey-core@1.10.0/modern.min.css">
   <script src="https://unpkg.com/survey-core@1.10.0/survey.core.min.js"></script>
   <script src="https://unpkg.com/survey-jquery@1.10.0/survey.jquery.min.js"></script>
-  <!-- You need HTTPS for mic access. GitHub Pages provides that. -->
-  <style> body{max-width:800px;margin:24px auto;padding:0 16px;} .rec{margin:8px 0;} </style>
+  <style>
+    body{max-width:800px;margin:24px auto;padding:0 16px;}
+    .rec{margin:8px 0;}
+    .rec button{margin-right:8px;}
+  </style>
 </head>
 <body>
   <h2>Emotion Reading Task</h2>
   <div id="surveyContainer"></div>
 
   <script type="module">
-    const API = "https://script.google.com/macros/s/AKfycbwq970N9tIv10WxcmU-CQCHxWexIQRDfUTHbtYynhuglic3jYB4BnLK8Lz2h2fwe6Si/exec"; // ends with /exec
-    const qs = new URLSearchParams(location.search);
-    const PROLIFIC_PID = qs.get("PROLIFIC_PID") || crypto.randomUUID(); // fallback for local testing
+    const API = "https://script.google.com/macros/s/AKfycbwq970N9tIv10WxcmU-CQCHxWexIQRDfUTHbtYynhuglic3jYB4BnLK8Lz2h2fwe6Si/exec";
 
+    // ---- assignment (token-based) ----
     async function getAssignment() {
-      const r = await fetch(`${API}?PROLIFIC_PID=${encodeURIComponent(PROLIFIC_PID)}`);
+      const saved = localStorage.getItem("survey_token") || "";
+      const url = saved ? `${API}?token=${encodeURIComponent(saved)}` : API;
+      const r = await fetch(url);
       if (!r.ok) throw new Error("Assignment API error");
-      return r.json(); // { participant_id, lines: {happy:..., sad:...} }
+      const data = await r.json();
+      if (data.token && data.token !== saved) localStorage.setItem("survey_token", data.token);
+      return data; // { token, participant_id, lines:{...} }
     }
 
-    // Simple in-page recorder using MediaRecorder → Base64
-    function recorderUI(emotion) {
+    // ---- build survey ----
+    const assign = await getAssignment();
+
+    const elements = [
+      { type:"html", html:`<p><b>Participant ID:</b> ${assign.participant_id}</p>` }
+    ];
+
+    // create one HTML block per emotion with recorder UI (NO <script> tags here)
+    for (const [emotion, line] of Object.entries(assign.lines)) {
       const id = `rec_${emotion}`;
-      return {
-        type: "html",
-        name: id,
-        html: `
-          <div class="rec" data-emotion="${emotion}">
-            <button type="button" id="${id}_btn">🎤 Start</button>
-            <span id="${id}_status"></span><br>
-            <audio id="${id}_player" controls></audio>
-            <input type="hidden" id="${id}_data">
-          </div>
-          <script>
-          (function(){
-            const btn = document.getElementById("${id}_btn");
-            const status = document.getElementById("${id}_status");
-            const player = document.getElementById("${id}_player");
-            const hidden = document.getElementById("${id}_data");
-            let rec, chunks=[], stream;
-
-            btn.onclick = async () => {
-              if (!rec || rec.state === "inactive") {
-                try {
-                  stream = await navigator.mediaDevices.getUserMedia({audio:true});
-                  rec = new MediaRecorder(stream);
-                  chunks = [];
-                  rec.ondataavailable = e => chunks.push(e.data);
-                  rec.onstop = async () => {
-                    const blob = new Blob(chunks, { type: rec.mimeType || "audio/webm" });
-                    player.src = URL.createObjectURL(blob);
-                    const buf = await blob.arrayBuffer();
-                    const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
-                    hidden.value = JSON.stringify({ base64: b64, mimeType: blob.type || "audio/webm" });
-                    status.textContent = " Recorded ✓";
-                    if (stream) stream.getTracks().forEach(t=>t.stop());
-                  };
-                  rec.start();
-                  btn.textContent = "⏹ Stop";
-                  status.textContent = " Recording…";
-                } catch (err) {
-                  alert("Microphone blocked. Please allow mic access.");
-                }
-              } else if (rec.state === "recording") {
-                rec.stop();
-                btn.textContent = "🎤 Re-record";
-              }
-            };
-          })();
-          </script>
-        `
-      };
+      elements.push(
+        { type:"html", name:id+"_text", html:`<h3>${emotion.toUpperCase()}</h3><p>${line || "(no text found)"}<p>` },
+        {
+          type:"html",
+          name:id,
+          html: `
+            <div class="rec" data-emotion="${emotion}">
+              <button type="button" id="${id}_btn">🎤 Start</button>
+              <span id="${id}_status"></span><br>
+              <audio id="${id}_player" controls></audio>
+              <input type="hidden" id="${id}_data">
+            </div>
+          `
+        }
+      );
     }
 
-    (async () => {
-      const assign = await getAssignment();
-      const elements = [
-        { type:"html", html:`<p><b>Participant ID:</b> ${assign.participant_id}</p>` },
-      ];
+    // hidden fields
+    elements.push(
+      { type:"text", name:"participant_id", defaultValue:String(assign.participant_id), visible:false }
+    );
 
-      // Build one block per emotion (line text + recorder)
-      for (const [emotion, line] of Object.entries(assign.lines)) {
-        elements.push(
-          { type:"html", html:`<h3>${emotion.toUpperCase()}</h3><p>${line || "(no text found)"}<p>` },
-          recorderUI(emotion)
-        );
-      }
+    const surveyJSON = { showProgressBar:"top", pages:[{ elements }] };
+    const survey = new Survey.Model(surveyJSON);
+    Survey.StylesManager.applyTheme("modern");
+    document.getElementById("surveyContainer").Survey({ model: survey });
 
-      // Hidden fields we want to store
-      elements.push(
-        { type:"text", name:"participant_id", defaultValue:String(assign.participant_id), visible:false },
-        { type:"text", name:"prolific_pid", defaultValue:String(PROLIFIC_PID), visible:false }
-      );
+    // ---- attach recorder logic after SurveyJS renders each HTML question ----
+    survey.onAfterRenderQuestion.add((_, options) => {
+      const el = options.htmlElement;
+      const qname = options.question.name;
+      if (!qname.startsWith("rec_")) return;
 
-      const surveyJSON = {
-        showProgressBar: "top",
-        pages: [{ elements }]
+      const emotion = el.querySelector(".rec")?.dataset?.emotion;
+      if (!emotion) return;
+
+      const btn    = el.querySelector(`#${qname}_btn`);
+      const status = el.querySelector(`#${qname}_status`);
+      const player = el.querySelector(`#${qname}_player`);
+      const hidden = el.querySelector(`#${qname}_data`);
+
+      let rec, chunks=[], stream;
+
+      btn.onclick = async () => {
+        if (!rec || rec.state === "inactive") {
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({audio:true});
+            rec = new MediaRecorder(stream);
+            chunks = [];
+            rec.ondataavailable = e => chunks.push(e.data);
+            rec.onstop = async () => {
+              const blob = new Blob(chunks, { type: rec.mimeType || "audio/webm" });
+              player.src = URL.createObjectURL(blob);
+              const buf = await blob.arrayBuffer();
+              const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+              hidden.value = JSON.stringify({ base64: b64, mimeType: blob.type || "audio/webm" });
+              status.textContent = " Recorded ✓";
+              if (stream) stream.getTracks().forEach(t=>t.stop());
+            };
+            rec.start();
+            btn.textContent = "⏹ Stop";
+            status.textContent = " Recording…";
+          } catch (err) {
+            alert("Microphone blocked. Please allow mic access.");
+          }
+        } else if (rec.state === "recording") {
+          rec.stop();
+          btn.textContent = "🎤 Re-record";
+        }
       };
+    });
 
-      const survey = new Survey.Model(surveyJSON);
-      Survey.StylesManager.applyTheme("modern");
-      document.getElementById("surveyContainer").Survey({ model: survey });
+    // ---- submit: upload each recording to Apps Script ----
+    survey.onComplete.add(async s => {
+      const pid = s.data.participant_id;
+      const uploadPromises = [];
 
-      // On complete: upload each recording to Apps Script
-      survey.onComplete.add(async s => {
-        const data = s.data; // contains hidden fields only; audio is in DOM
-        const pid = data.participant_id;
-
-        // Grab each hidden <input id="rec_EMOTION_data"> and POST it
-        const uploadPromises = [];
-        for (const emotion of Object.keys(assign.lines)) {
-          const el = document.getElementById(`rec_${emotion}_data`);
-          if (!el || !el.value) { continue; }
-          const { base64, mimeType } = JSON.parse(el.value);
-          uploadPromises.push(fetch(API, {
+      for (const emotion of Object.keys(assign.lines)) {
+        const hidden = document.getElementById(`rec_${emotion}_data`);
+        if (!hidden || !hidden.value) continue;
+        const { base64, mimeType } = JSON.parse(hidden.value);
+        uploadPromises.push(
+          fetch(API, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ participant_id: pid, emotion, base64, mimeType })
-          }).then(r => r.json()));
-        }
+          }).then(r => r.json())
+        );
+      }
 
-        try {
-          await Promise.all(uploadPromises);
-          // Redirect to Prolific completion
-          location.href = "https://app.prolific.com/submissions/complete?cc=YOUR_COMPLETION_CODE";
-        } catch (e) {
-          alert("Upload failed. Please contact us with your PID: "+pid);
-          console.error(e);
-        }
-      });
-    })();
+      try {
+        await Promise.all(uploadPromises);
+        // simple thank-you page
+        document.body.innerHTML = `<h2>Thanks!</h2><p>Your recordings were uploaded. PID: <b>${pid}</b></p>`;
+      } catch (e) {
+        alert("Upload failed. Please contact us with your PID: "+pid);
+        console.error(e);
+      }
+    });
   </script>
 </body>
 </html>
