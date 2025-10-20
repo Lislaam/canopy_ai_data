@@ -146,7 +146,7 @@
       document.getElementById("submitAll").onclick = async ()=>{
         const pid = assign.participant_id;
         const msg = document.getElementById("submitMsg");
-        msg.textContent = "Uploading…";
+        msg.textContent = "Uploading… Please do not navigate away from this page";
 
         // Validate all present and ≥3s
         const missing=[], tooShort=[];
@@ -186,7 +186,7 @@
             document.getElementById(`st_${emotion}`).className = "ok";
           }
 
-          msg.textContent = "All uploads sent ✓ (check Google Drive)";
+          msg.textContent = "All uploads sent ✓";
           msg.className = "ok";
           document.body.scrollIntoView({behavior:"smooth",block:"start"});
         }catch(e){
