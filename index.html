@@ -11,6 +11,8 @@
     body{max-width:800px;margin:24px auto;padding:0 16px;}
     .rec{margin:8px 0;}
     .rec button{margin-right:8px;}
+    .linebox{padding:10px 12px;border-left:4px solid #ccc;background:#f7f7f7;margin:8px 0;}
+    .hint{margin:6px 0 0;color:#666;font-size:0.95em;}
   </style>
 </head>
 <body>
@@ -28,26 +30,42 @@
       if (!r.ok) throw new Error("Assignment API error");
       const data = await r.json();
       if (data.token && data.token !== saved) localStorage.setItem("survey_token", data.token);
-      return data; // { token, participant_id, lines:{...} }
+      return data;
     }
 
-    // ---- build survey ----
     const assign = await getAssignment();
+
+    const instr = {
+      Happy:    "Please record yourself reading the following with a <b>happy, joyful tone</b>:",
+      Sad:      "Please record yourself reading the following with a <b>sad, subdued tone</b>:",
+      Surprised:"Please record yourself reading the following with a <b>surprised tone</b>:",
+      Angry:    "Please record yourself reading the following with an <b>angry tone</b>:",
+      Neutral:  "Please record yourself reading the following in a <b>calm, neutral tone</b>:"
+    };
 
     const elements = [
       { type:"html", html:`<p><b>Participant ID:</b> ${assign.participant_id}</p>` }
     ];
 
-    // create one HTML block per emotion with recorder UI (NO <script> tags here)
     for (const [emotion, line] of Object.entries(assign.lines)) {
-      const id = `rec_${emotion}`;
+      const nice = emotion.charAt(0).toUpperCase() + emotion.slice(1);
+      const id = `rec_${nice}`;
       elements.push(
-        { type:"html", name:id+"_text", html:`<h3>${emotion.toUpperCase()}</h3><p>${line || "(no text found)"}<p>` },
+        {
+          type:"html",
+          name:id+"_text",
+          html: `
+            <h3>${nice}</h3>
+            <p>${instr[nice] || "Please record yourself reading:"}</p>
+            <div class="linebox">${line || "(no text found)"}</div>
+            <p class="hint"><i>row = PID, sheet = '${nice}'</i></p>
+          `
+        },
         {
           type:"html",
           name:id,
           html: `
-            <div class="rec" data-emotion="${emotion}">
+            <div class="rec" data-emotion="${nice}">
               <button type="button" id="${id}_btn">🎤 Start</button>
               <span id="${id}_status"></span><br>
               <audio id="${id}_player" controls></audio>
@@ -58,17 +76,14 @@
       );
     }
 
-    // hidden fields
-    elements.push(
-      { type:"text", name:"participant_id", defaultValue:String(assign.participant_id), visible:false }
-    );
+    elements.push({ type:"text", name:"participant_id", defaultValue:String(assign.participant_id), visible:false });
 
     const surveyJSON = { showProgressBar:"top", pages:[{ elements }] };
     const survey = new Survey.Model(surveyJSON);
     Survey.StylesManager.applyTheme("modern");
     document.getElementById("surveyContainer").Survey({ model: survey });
 
-    // ---- attach recorder logic after SurveyJS renders each HTML question ----
+    // ---- attach recorder logic after render ----
     survey.onAfterRenderQuestion.add((_, options) => {
       const el = options.htmlElement;
       const qname = options.question.name;
@@ -82,7 +97,7 @@
       const player = el.querySelector(`#${qname}_player`);
       const hidden = el.querySelector(`#${qname}_data`);
 
-      let rec, chunks=[], stream;
+      let rec, chunks=[], stream, startTime;
 
       btn.onclick = async () => {
         if (!rec || rec.state === "inactive") {
@@ -91,13 +106,21 @@
             rec = new MediaRecorder(stream);
             chunks = [];
             rec.ondataavailable = e => chunks.push(e.data);
+            rec.onstart = () => { startTime = Date.now(); };
             rec.onstop = async () => {
+              const dur = (Date.now() - startTime)/1000;
+              if (dur < 3) {
+                status.textContent = ` Recording too short (${dur.toFixed(1)}s). Please record at least 3s.`;
+                btn.textContent = "🎤 Re-record";
+                if (stream) stream.getTracks().forEach(t=>t.stop());
+                return;
+              }
               const blob = new Blob(chunks, { type: rec.mimeType || "audio/webm" });
               player.src = URL.createObjectURL(blob);
               const buf = await blob.arrayBuffer();
               const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
-              hidden.value = JSON.stringify({ base64: b64, mimeType: blob.type || "audio/webm" });
-              status.textContent = " Recorded ✓";
+              hidden.value = JSON.stringify({ base64: b64, mimeType: blob.type || "audio/webm", duration: dur });
+              status.textContent = ` Recorded ✓ (${dur.toFixed(1)}s)`;
               if (stream) stream.getTracks().forEach(t=>t.stop());
             };
             rec.start();
@@ -113,28 +136,49 @@
       };
     });
 
-    // ---- submit: upload each recording to Apps Script ----
+    // ---- require all recordings (≥3 s) before submit ----
+    survey.onCompleting.add((sender, options) => {
+      const tooShort = [], missing = [];
+      for (const emotion of Object.keys(assign.lines)) {
+        const nice = emotion.charAt(0).toUpperCase() + emotion.slice(1);
+        const hidden = document.getElementById(`rec_${nice}_data`);
+        if (!hidden || !hidden.value) { missing.push(nice); continue; }
+        try {
+          const { duration } = JSON.parse(hidden.value);
+          if (duration < 3) tooShort.push(`${nice} (${duration.toFixed(1)} s)`);
+        } catch {}
+      }
+      if (missing.length || tooShort.length) {
+        options.allow = false;
+        let msg = "";
+        if (missing.length) msg += "Missing: " + missing.join(", ") + ". ";
+        if (tooShort.length) msg += "Too short: " + tooShort.join(", ") + ".";
+        alert("Please fix these recordings before submitting:\n" + msg);
+      }
+    });
+
+    // ---- upload recordings ----
     survey.onComplete.add(async s => {
       const pid = s.data.participant_id;
-      const uploadPromises = [];
+      const uploads = [];
 
       for (const emotion of Object.keys(assign.lines)) {
-        const hidden = document.getElementById(`rec_${emotion}_data`);
+        const nice = emotion.charAt(0).toUpperCase() + emotion.slice(1);
+        const hidden = document.getElementById(`rec_${nice}_data`);
         if (!hidden || !hidden.value) continue;
         const { base64, mimeType } = JSON.parse(hidden.value);
-        uploadPromises.push(
+        uploads.push(
           fetch(API, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ participant_id: pid, emotion, base64, mimeType })
+            body: JSON.stringify({ participant_id: pid, emotion: nice, base64, mimeType })
           }).then(r => r.json())
         );
       }
 
       try {
-        await Promise.all(uploadPromises);
-        // simple thank-you page
-        document.body.innerHTML = `<h2>Thanks!</h2><p>Your recordings were uploaded. PID: <b>${pid}</b></p>`;
+        await Promise.all(uploads);
+        document.body.innerHTML = `<h2>Thanks!</h2><p>Your recordings were uploaded successfully.<br>Participant ID: <b>${pid}</b></p>`;
       } catch (e) {
         alert("Upload failed. Please contact us with your PID: "+pid);
         console.error(e);
