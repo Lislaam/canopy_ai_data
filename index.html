@@ -1,158 +1,142 @@
-<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<!doctype html>
 <html>
 <head>
-  <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-  <meta http-equiv="Content-Style-Type" content="text/css">
-  <title></title>
-  <meta name="Generator" content="Cocoa HTML Writer">
-  <meta name="CocoaVersion" content="2685.1">
-  <style type="text/css">
-    p.p1 {margin: 0.0px 0.0px 0.0px 0.0px; font: 12.0px Helvetica}
-    p.p2 {margin: 0.0px 0.0px 0.0px 0.0px; font: 12.0px Helvetica; min-height: 14.0px}
-  </style>
+  <meta charset="utf-8">
+  <title>Emotion Reading Task</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- SurveyJS (CDN) -->
+  <link rel="stylesheet" href="https://unpkg.com/survey-core@1.10.0/modern.min.css">
+  <script src="https://unpkg.com/survey-core@1.10.0/survey.core.min.js"></script>
+  <script src="https://unpkg.com/survey-jquery@1.10.0/survey.jquery.min.js"></script>
+  <!-- You need HTTPS for mic access. GitHub Pages provides that. -->
+  <style> body{max-width:800px;margin:24px auto;padding:0 16px;} .rec{margin:8px 0;} </style>
 </head>
 <body>
-<p class="p1">&lt;!doctype html&gt;</p>
-<p class="p1">&lt;html&gt;</p>
-<p class="p1">&lt;head&gt;</p>
-<p class="p1"><span class="Apple-converted-space">  </span>&lt;meta charset="utf-8"&gt;</p>
-<p class="p1"><span class="Apple-converted-space">  </span>&lt;title&gt;Emotion Reading Task&lt;/title&gt;</p>
-<p class="p1"><span class="Apple-converted-space">  </span>&lt;meta name="viewport" content="width=device-width, initial-scale=1"&gt;</p>
-<p class="p1"><span class="Apple-converted-space">  </span>&lt;!-- SurveyJS (CDN) --&gt;</p>
-<p class="p1"><span class="Apple-converted-space">  </span>&lt;link rel="stylesheet" href="https://unpkg.com/survey-core@1.10.0/modern.min.css"&gt;</p>
-<p class="p1"><span class="Apple-converted-space">  </span>&lt;script src="https://unpkg.com/survey-core@1.10.0/survey.core.min.js"&gt;&lt;/script&gt;</p>
-<p class="p1"><span class="Apple-converted-space">  </span>&lt;script src="https://unpkg.com/survey-jquery@1.10.0/survey.jquery.min.js"&gt;&lt;/script&gt;</p>
-<p class="p1"><span class="Apple-converted-space">  </span>&lt;!-- You need HTTPS for mic access. GitHub Pages provides that. --&gt;</p>
-<p class="p1"><span class="Apple-converted-space">  </span>&lt;style&gt; body{max-width:800px;margin:24px auto;padding:0 16px;} .rec{margin:8px 0;} &lt;/style&gt;</p>
-<p class="p1">&lt;/head&gt;</p>
-<p class="p1">&lt;body&gt;</p>
-<p class="p1"><span class="Apple-converted-space">  </span>&lt;h2&gt;Emotion Reading Task&lt;/h2&gt;</p>
-<p class="p1"><span class="Apple-converted-space">  </span>&lt;div id="surveyContainer"&gt;&lt;/div&gt;</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">  </span>&lt;script type="module"&gt;</p>
-<p class="p1"><span class="Apple-converted-space">    </span>const API = "PASTE_YOUR_APPS_SCRIPT_EXEC_URL_HERE"; // ends with /exec</p>
-<p class="p1"><span class="Apple-converted-space">    </span>const qs = new URLSearchParams(location.search);</p>
-<p class="p1"><span class="Apple-converted-space">    </span>const PROLIFIC_PID = qs.get("PROLIFIC_PID") || crypto.randomUUID(); // fallback for local testing</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">    </span>async function getAssignment() {</p>
-<p class="p1"><span class="Apple-converted-space">      </span>const r = await fetch(`${API}?PROLIFIC_PID=${encodeURIComponent(PROLIFIC_PID)}`);</p>
-<p class="p1"><span class="Apple-converted-space">      </span>if (!r.ok) throw new Error("Assignment API error");</p>
-<p class="p1"><span class="Apple-converted-space">      </span>return r.json(); // { participant_id, lines: {happy:..., sad:...} }</p>
-<p class="p1"><span class="Apple-converted-space">    </span>}</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">    </span>// Simple in-page recorder using MediaRecorder → Base64</p>
-<p class="p1"><span class="Apple-converted-space">    </span>function recorderUI(emotion) {</p>
-<p class="p1"><span class="Apple-converted-space">      </span>const id = `rec_${emotion}`;</p>
-<p class="p1"><span class="Apple-converted-space">      </span>return {</p>
-<p class="p1"><span class="Apple-converted-space">        </span>type: "html",</p>
-<p class="p1"><span class="Apple-converted-space">        </span>name: id,</p>
-<p class="p1"><span class="Apple-converted-space">        </span>html: `</p>
-<p class="p1"><span class="Apple-converted-space">          </span>&lt;div class="rec" data-emotion="${emotion}"&gt;</p>
-<p class="p1"><span class="Apple-converted-space">            </span>&lt;button type="button" id="${id}_btn"&gt;🎤 Start&lt;/button&gt;</p>
-<p class="p1"><span class="Apple-converted-space">            </span>&lt;span id="${id}_status"&gt;&lt;/span&gt;&lt;br&gt;</p>
-<p class="p1"><span class="Apple-converted-space">            </span>&lt;audio id="${id}_player" controls&gt;&lt;/audio&gt;</p>
-<p class="p1"><span class="Apple-converted-space">            </span>&lt;input type="hidden" id="${id}_data"&gt;</p>
-<p class="p1"><span class="Apple-converted-space">          </span>&lt;/div&gt;</p>
-<p class="p1"><span class="Apple-converted-space">          </span>&lt;script&gt;</p>
-<p class="p1"><span class="Apple-converted-space">          </span>(function(){</p>
-<p class="p1"><span class="Apple-converted-space">            </span>const btn = document.getElementById("${id}_btn");</p>
-<p class="p1"><span class="Apple-converted-space">            </span>const status = document.getElementById("${id}_status");</p>
-<p class="p1"><span class="Apple-converted-space">            </span>const player = document.getElementById("${id}_player");</p>
-<p class="p1"><span class="Apple-converted-space">            </span>const hidden = document.getElementById("${id}_data");</p>
-<p class="p1"><span class="Apple-converted-space">            </span>let rec, chunks=[], stream;</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">            </span>btn.onclick = async () =&gt; {</p>
-<p class="p1"><span class="Apple-converted-space">              </span>if (!rec || rec.state === "inactive") {</p>
-<p class="p1"><span class="Apple-converted-space">                </span>try {</p>
-<p class="p1"><span class="Apple-converted-space">                  </span>stream = await navigator.mediaDevices.getUserMedia({audio:true});</p>
-<p class="p1"><span class="Apple-converted-space">                  </span>rec = new MediaRecorder(stream);</p>
-<p class="p1"><span class="Apple-converted-space">                  </span>chunks = [];</p>
-<p class="p1"><span class="Apple-converted-space">                  </span>rec.ondataavailable = e =&gt; chunks.push(e.data);</p>
-<p class="p1"><span class="Apple-converted-space">                  </span>rec.onstop = async () =&gt; {</p>
-<p class="p1"><span class="Apple-converted-space">                    </span>const blob = new Blob(chunks, { type: rec.mimeType || "audio/webm" });</p>
-<p class="p1"><span class="Apple-converted-space">                    </span>player.src = URL.createObjectURL(blob);</p>
-<p class="p1"><span class="Apple-converted-space">                    </span>const buf = await blob.arrayBuffer();</p>
-<p class="p1"><span class="Apple-converted-space">                    </span>const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));</p>
-<p class="p1"><span class="Apple-converted-space">                    </span>hidden.value = JSON.stringify({ base64: b64, mimeType: blob.type || "audio/webm" });</p>
-<p class="p1"><span class="Apple-converted-space">                    </span>status.textContent = " Recorded ✓";</p>
-<p class="p1"><span class="Apple-converted-space">                    </span>if (stream) stream.getTracks().forEach(t=&gt;t.stop());</p>
-<p class="p1"><span class="Apple-converted-space">                  </span>};</p>
-<p class="p1"><span class="Apple-converted-space">                  </span>rec.start();</p>
-<p class="p1"><span class="Apple-converted-space">                  </span>btn.textContent = "⏹ Stop";</p>
-<p class="p1"><span class="Apple-converted-space">                  </span>status.textContent = " Recording…";</p>
-<p class="p1"><span class="Apple-converted-space">                </span>} catch (err) {</p>
-<p class="p1"><span class="Apple-converted-space">                  </span>alert("Microphone blocked. Please allow mic access.");</p>
-<p class="p1"><span class="Apple-converted-space">                </span>}</p>
-<p class="p1"><span class="Apple-converted-space">              </span>} else if (rec.state === "recording") {</p>
-<p class="p1"><span class="Apple-converted-space">                </span>rec.stop();</p>
-<p class="p1"><span class="Apple-converted-space">                </span>btn.textContent = "🎤 Re-record";</p>
-<p class="p1"><span class="Apple-converted-space">              </span>}</p>
-<p class="p1"><span class="Apple-converted-space">            </span>};</p>
-<p class="p1"><span class="Apple-converted-space">          </span>})();</p>
-<p class="p1"><span class="Apple-converted-space">          </span>&lt;/script&gt;</p>
-<p class="p1"><span class="Apple-converted-space">        </span>`</p>
-<p class="p1"><span class="Apple-converted-space">      </span>};</p>
-<p class="p1"><span class="Apple-converted-space">    </span>}</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">    </span>(async () =&gt; {</p>
-<p class="p1"><span class="Apple-converted-space">      </span>const assign = await getAssignment();</p>
-<p class="p1"><span class="Apple-converted-space">      </span>const elements = [</p>
-<p class="p1"><span class="Apple-converted-space">        </span>{ type:"html", html:`&lt;p&gt;&lt;b&gt;Participant ID:&lt;/b&gt; ${assign.participant_id}&lt;/p&gt;` },</p>
-<p class="p1"><span class="Apple-converted-space">      </span>];</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">      </span>// Build one block per emotion (line text + recorder)</p>
-<p class="p1"><span class="Apple-converted-space">      </span>for (const [emotion, line] of Object.entries(assign.lines)) {</p>
-<p class="p1"><span class="Apple-converted-space">        </span>elements.push(</p>
-<p class="p1"><span class="Apple-converted-space">          </span>{ type:"html", html:`&lt;h3&gt;${emotion.toUpperCase()}&lt;/h3&gt;&lt;p&gt;${line || "(no text found)"}&lt;p&gt;` },</p>
-<p class="p1"><span class="Apple-converted-space">          </span>recorderUI(emotion)</p>
-<p class="p1"><span class="Apple-converted-space">        </span>);</p>
-<p class="p1"><span class="Apple-converted-space">      </span>}</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">      </span>// Hidden fields we want to store</p>
-<p class="p1"><span class="Apple-converted-space">      </span>elements.push(</p>
-<p class="p1"><span class="Apple-converted-space">        </span>{ type:"text", name:"participant_id", defaultValue:String(assign.participant_id), visible:false },</p>
-<p class="p1"><span class="Apple-converted-space">        </span>{ type:"text", name:"prolific_pid", defaultValue:String(PROLIFIC_PID), visible:false }</p>
-<p class="p1"><span class="Apple-converted-space">      </span>);</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">      </span>const surveyJSON = {</p>
-<p class="p1"><span class="Apple-converted-space">        </span>showProgressBar: "top",</p>
-<p class="p1"><span class="Apple-converted-space">        </span>pages: [{ elements }]</p>
-<p class="p1"><span class="Apple-converted-space">      </span>};</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">      </span>const survey = new Survey.Model(surveyJSON);</p>
-<p class="p1"><span class="Apple-converted-space">      </span>Survey.StylesManager.applyTheme("modern");</p>
-<p class="p1"><span class="Apple-converted-space">      </span>document.getElementById("surveyContainer").Survey({ model: survey });</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">      </span>// On complete: upload each recording to Apps Script</p>
-<p class="p1"><span class="Apple-converted-space">      </span>survey.onComplete.add(async s =&gt; {</p>
-<p class="p1"><span class="Apple-converted-space">        </span>const data = s.data; // contains hidden fields only; audio is in DOM</p>
-<p class="p1"><span class="Apple-converted-space">        </span>const pid = data.participant_id;</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">        </span>// Grab each hidden &lt;input id="rec_EMOTION_data"&gt; and POST it</p>
-<p class="p1"><span class="Apple-converted-space">        </span>const uploadPromises = [];</p>
-<p class="p1"><span class="Apple-converted-space">        </span>for (const emotion of Object.keys(assign.lines)) {</p>
-<p class="p1"><span class="Apple-converted-space">          </span>const el = document.getElementById(`rec_${emotion}_data`);</p>
-<p class="p1"><span class="Apple-converted-space">          </span>if (!el || !el.value) { continue; }</p>
-<p class="p1"><span class="Apple-converted-space">          </span>const { base64, mimeType } = JSON.parse(el.value);</p>
-<p class="p1"><span class="Apple-converted-space">          </span>uploadPromises.push(fetch(API, {</p>
-<p class="p1"><span class="Apple-converted-space">            </span>method: "POST",</p>
-<p class="p1"><span class="Apple-converted-space">            </span>headers: { "Content-Type": "application/json" },</p>
-<p class="p1"><span class="Apple-converted-space">            </span>body: JSON.stringify({ participant_id: pid, emotion, base64, mimeType })</p>
-<p class="p1"><span class="Apple-converted-space">          </span>}).then(r =&gt; r.json()));</p>
-<p class="p1"><span class="Apple-converted-space">        </span>}</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">        </span>try {</p>
-<p class="p1"><span class="Apple-converted-space">          </span>await Promise.all(uploadPromises);</p>
-<p class="p1"><span class="Apple-converted-space">          </span>// Redirect to Prolific completion</p>
-<p class="p1"><span class="Apple-converted-space">          </span>location.href = "https://app.prolific.com/submissions/complete?cc=YOUR_COMPLETION_CODE";</p>
-<p class="p1"><span class="Apple-converted-space">        </span>} catch (e) {</p>
-<p class="p1"><span class="Apple-converted-space">          </span>alert("Upload failed. Please contact us with your PID: "+pid);</p>
-<p class="p1"><span class="Apple-converted-space">          </span>console.error(e);</p>
-<p class="p1"><span class="Apple-converted-space">        </span>}</p>
-<p class="p1"><span class="Apple-converted-space">      </span>});</p>
-<p class="p1"><span class="Apple-converted-space">    </span>})();</p>
-<p class="p1"><span class="Apple-converted-space">  </span>&lt;/script&gt;</p>
-<p class="p1">&lt;/body&gt;</p>
-<p class="p1">&lt;/html&gt;</p>
+  <h2>Emotion Reading Task</h2>
+  <div id="surveyContainer"></div>
+
+  <script type="module">
+    const API = "https://script.google.com/macros/s/AKfycbwq970N9tIv10WxcmU-CQCHxWexIQRDfUTHbtYynhuglic3jYB4BnLK8Lz2h2fwe6Si/exec"; // ends with /exec
+    const qs = new URLSearchParams(location.search);
+    const PROLIFIC_PID = qs.get("PROLIFIC_PID") || crypto.randomUUID(); // fallback for local testing
+
+    async function getAssignment() {
+      const r = await fetch(`${API}?PROLIFIC_PID=${encodeURIComponent(PROLIFIC_PID)}`);
+      if (!r.ok) throw new Error("Assignment API error");
+      return r.json(); // { participant_id, lines: {happy:..., sad:...} }
+    }
+
+    // Simple in-page recorder using MediaRecorder → Base64
+    function recorderUI(emotion) {
+      const id = `rec_${emotion}`;
+      return {
+        type: "html",
+        name: id,
+        html: `
+          <div class="rec" data-emotion="${emotion}">
+            <button type="button" id="${id}_btn">🎤 Start</button>
+            <span id="${id}_status"></span><br>
+            <audio id="${id}_player" controls></audio>
+            <input type="hidden" id="${id}_data">
+          </div>
+          <script>
+          (function(){
+            const btn = document.getElementById("${id}_btn");
+            const status = document.getElementById("${id}_status");
+            const player = document.getElementById("${id}_player");
+            const hidden = document.getElementById("${id}_data");
+            let rec, chunks=[], stream;
+
+            btn.onclick = async () => {
+              if (!rec || rec.state === "inactive") {
+                try {
+                  stream = await navigator.mediaDevices.getUserMedia({audio:true});
+                  rec = new MediaRecorder(stream);
+                  chunks = [];
+                  rec.ondataavailable = e => chunks.push(e.data);
+                  rec.onstop = async () => {
+                    const blob = new Blob(chunks, { type: rec.mimeType || "audio/webm" });
+                    player.src = URL.createObjectURL(blob);
+                    const buf = await blob.arrayBuffer();
+                    const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+                    hidden.value = JSON.stringify({ base64: b64, mimeType: blob.type || "audio/webm" });
+                    status.textContent = " Recorded ✓";
+                    if (stream) stream.getTracks().forEach(t=>t.stop());
+                  };
+                  rec.start();
+                  btn.textContent = "⏹ Stop";
+                  status.textContent = " Recording…";
+                } catch (err) {
+                  alert("Microphone blocked. Please allow mic access.");
+                }
+              } else if (rec.state === "recording") {
+                rec.stop();
+                btn.textContent = "🎤 Re-record";
+              }
+            };
+          })();
+          </script>
+        `
+      };
+    }
+
+    (async () => {
+      const assign = await getAssignment();
+      const elements = [
+        { type:"html", html:`<p><b>Participant ID:</b> ${assign.participant_id}</p>` },
+      ];
+
+      // Build one block per emotion (line text + recorder)
+      for (const [emotion, line] of Object.entries(assign.lines)) {
+        elements.push(
+          { type:"html", html:`<h3>${emotion.toUpperCase()}</h3><p>${line || "(no text found)"}<p>` },
+          recorderUI(emotion)
+        );
+      }
+
+      // Hidden fields we want to store
+      elements.push(
+        { type:"text", name:"participant_id", defaultValue:String(assign.participant_id), visible:false },
+        { type:"text", name:"prolific_pid", defaultValue:String(PROLIFIC_PID), visible:false }
+      );
+
+      const surveyJSON = {
+        showProgressBar: "top",
+        pages: [{ elements }]
+      };
+
+      const survey = new Survey.Model(surveyJSON);
+      Survey.StylesManager.applyTheme("modern");
+      document.getElementById("surveyContainer").Survey({ model: survey });
+
+      // On complete: upload each recording to Apps Script
+      survey.onComplete.add(async s => {
+        const data = s.data; // contains hidden fields only; audio is in DOM
+        const pid = data.participant_id;
+
+        // Grab each hidden <input id="rec_EMOTION_data"> and POST it
+        const uploadPromises = [];
+        for (const emotion of Object.keys(assign.lines)) {
+          const el = document.getElementById(`rec_${emotion}_data`);
+          if (!el || !el.value) { continue; }
+          const { base64, mimeType } = JSON.parse(el.value);
+          uploadPromises.push(fetch(API, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ participant_id: pid, emotion, base64, mimeType })
+          }).then(r => r.json()));
+        }
+
+        try {
+          await Promise.all(uploadPromises);
+          // Redirect to Prolific completion
+          location.href = "https://app.prolific.com/submissions/complete?cc=YOUR_COMPLETION_CODE";
+        } catch (e) {
+          alert("Upload failed. Please contact us with your PID: "+pid);
+          console.error(e);
+        }
+      });
+    })();
+  </script>
 </body>
 </html>
