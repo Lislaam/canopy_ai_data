@@ -5,31 +5,16 @@
   <title>Emotion Reading Task</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    body {
-      max-width: 800px;
-      margin: 24px auto;
-      padding: 0 16px;
-      font-family: system-ui, Segoe UI, Arial, sans-serif;
-    }
-    h2 { margin-bottom: 8px; }
-    .error {
-      color: #b00020;
-      background: #fdecee;
-      padding: 12px;
-      border-left: 4px solid #b00020;
-    }
-    .block { margin: 24px 0; }
-    .line {
-      padding: 10px 12px;
-      border-left: 4px solid #ccc;
-      background: #f7f7f7;
-      margin: 8px 0;
-    }
-    .meta {
-      margin: 6px 0 0;
-      color: #666;
-      font-size: 0.95em;
-    }
+    body{max-width:800px;margin:24px auto;padding:0 16px;font-family:system-ui,Segoe UI,Arial,sans-serif}
+    h2{margin-bottom:8px}
+    .block{margin:24px 0}
+    .line{padding:10px 12px;border-left:4px solid #ccc;background:#f7f7f7;margin:8px 0}
+    .meta{margin:6px 0 0;color:#666;font-size:.95em}
+    .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    button{cursor:pointer}
+    .error{color:#b00020;background:#fdecee;padding:12px;border-left:4px solid #b00020}
+    .ok{color:#0a6b2d}
+    .muted{color:#666}
   </style>
 </head>
 <body>
@@ -39,54 +24,155 @@
   <script type="module">
     const API = "https://script.google.com/macros/s/AKfycbwq970N9tIv10WxcmU-CQCHxWexIQRDfUTHbtYynhuglic3jYB4BnLK8Lz2h2fwe6Si/exec";
 
-    async function getAssignment() {
+    const INSTR = {
+      Happy:    "Please read with a <b>happy, joyful tone</b>:",
+      Sad:      "Please read with a <b>sad tone</b>:",
+      Surprised:"Please read with a <b>surprised tone</b>:",
+      Angry:    "Please read with an <b>angry tone</b>:",
+      Neutral:  "Please read in a <b>calm, neutral tone</b>:",
+    };
+
+    async function getAssignment(){
       const saved = localStorage.getItem("survey_token") || "";
       const url = saved ? `${API}?token=${encodeURIComponent(saved)}` : API;
       const r = await fetch(url);
-      if (!r.ok) throw new Error(`API error ${r.status}`);
+      if(!r.ok) throw new Error(`API error ${r.status}`);
       const data = await r.json();
-      if (data.token && data.token !== saved)
-        localStorage.setItem("survey_token", data.token);
-      if (!data.lines)
-        throw new Error(data.error || "No lines returned");
-      return data;
+      if(data.token && data.token !== saved) localStorage.setItem("survey_token", data.token);
+      if(!data.lines) throw new Error(data.error || "No lines returned");
+      return data; // {token, participant_id, lines:{Happy: "...", ...}}
     }
 
-    function render(assign) {
-      const instr = {
-        Happy:    "Please read the following with a <b>happy, joyful tone</b>:",
-        Sad:      "Please read the following with a <b>sad tone</b>:",
-        Surprised:"Please read the following with a <b>surprised tone</b>:",
-        Angry:    "Please read the following with an <b>angry tone</b>:",
-        Neutral:  "Please read the following in a <b>calm, neutral tone</b>:"
-      };
+    function sectionHTML(emotion, text){
+      return `
+        <div class="block" id="blk_${emotion}">
+          <h3>${emotion}</h3>
+          <p>${INSTR[emotion]}</p>
+          <div class="line">${text || "(no text found)"}</div>
+          <p class="meta"><i>row = PID, sheet = '${emotion}'</i></p>
 
-      let html = `<p><b>Participant ID:</b> ${assign.participant_id}</p>`;
-
-      for (const [emotion, line] of Object.entries(assign.lines)) {
-        const nice = emotion.charAt(0).toUpperCase() + emotion.slice(1);
-        html += `
-          <div class="block">
-            <h3>${nice}</h3>
-            <p>${instr[nice] || "Please read the following:"}</p>
-            <div class="line">${line || "(no text found)"}</div>
-            <p class="meta"><i>row = PID, sheet = '${nice}'</i></p>
+          <div class="row">
+            <button id="btn_${emotion}">🎤 Start</button>
+            <span id="st_${emotion}" class="muted">Not recorded</span>
           </div>
-        `;
-      }
-
-      document.getElementById("content").innerHTML = html;
+          <audio id="aud_${emotion}" controls style="display:block;margin-top:8px"></audio>
+          <input type="hidden" id="hid_${emotion}">
+        </div>
+      `;
     }
 
-    (async () => {
-      try {
-        const assign = await getAssignment();
-        render(assign);
-      } catch (e) {
+    (async()=>{
+      let assign;
+      try { assign = await getAssignment(); }
+      catch(e){
         document.getElementById("content").innerHTML =
           `<div class="error"><b>Couldn’t load tasks.</b> ${String(e)}</div>`;
-        console.error(e);
+        console.error(e); return;
       }
+
+      // Render UI
+      let html = `<p><b>Participant ID:</b> ${assign.participant_id}</p>`;
+      for(const [emotion, line] of Object.entries(assign.lines)){
+        const nice = emotion.charAt(0).toUpperCase() + emotion.slice(1);
+        html += sectionHTML(nice, line);
+      }
+      html += `<div class="block"><button id="submitAll">Submit recordings</button>
+               <span id="submitMsg" class="muted"></span></div>`;
+      document.getElementById("content").innerHTML = html;
+
+      // Hook up recorder logic for each emotion
+      for(const emotionKey of Object.keys(assign.lines)){
+        const emotion = emotionKey.charAt(0).toUpperCase() + emotionKey.slice(1);
+        const btn = document.getElementById(`btn_${emotion}`);
+        const st  = document.getElementById(`st_${emotion}`);
+        const aud = document.getElementById(`aud_${emotion}`);
+        const hid = document.getElementById(`hid_${emotion}`);
+
+        let rec, chunks=[], stream, startTime;
+
+        btn.onclick = async ()=>{
+          if(!rec || rec.state==="inactive"){
+            try{
+              stream = await navigator.mediaDevices.getUserMedia({audio:true});
+              rec = new MediaRecorder(stream);
+              chunks = [];
+              rec.ondataavailable = e => chunks.push(e.data);
+              rec.onstart = ()=>{ startTime = Date.now(); st.textContent = "Recording…"; st.className=""; };
+              rec.onstop = async ()=>{
+                const dur = (Date.now()-startTime)/1000;
+                if(dur < 3){
+                  st.textContent = `Recording too short (${dur.toFixed(1)}s) — please record ≥ 3s.`;
+                  st.className="error"; btn.textContent="🎤 Re-record";
+                  if(stream) stream.getTracks().forEach(t=>t.stop());
+                  return;
+                }
+                const blob = new Blob(chunks,{type: rec.mimeType || "audio/webm"});
+                aud.src = URL.createObjectURL(blob);
+                const buf = await blob.arrayBuffer();
+                const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+                hid.value = JSON.stringify({ base64:b64, mimeType: blob.type || "audio/webm", duration: dur });
+                st.textContent = `Recorded ✓ (${dur.toFixed(1)}s)`;
+                st.className="ok"; btn.textContent="🎤 Re-record";
+                if(stream) stream.getTracks().forEach(t=>t.stop());
+              };
+              rec.start();
+              btn.textContent = "⏹ Stop";
+            }catch(err){
+              alert("Microphone blocked. Please allow mic access.");
+            }
+          }else if(rec.state==="recording"){
+            rec.stop();
+          }
+        };
+      }
+
+      // Submit uploads
+      document.getElementById("submitAll").onclick = async ()=>{
+        const pid = assign.participant_id;
+        const msg = document.getElementById("submitMsg");
+        msg.textContent = "Uploading…";
+
+        // Validate all present and ≥3s
+        const missing=[], tooShort=[];
+        for(const k of Object.keys(assign.lines)){
+          const emotion = k.charAt(0).toUpperCase() + k.slice(1);
+          const hid = document.getElementById(`hid_${emotion}`);
+          if(!hid || !hid.value){ missing.push(emotion); continue; }
+          try{
+            const { duration } = JSON.parse(hid.value);
+            if(duration < 3) tooShort.push(`${emotion} (${duration.toFixed(1)}s)`);
+          }catch{}
+        }
+        if(missing.length || tooShort.length){
+          msg.textContent = "";
+          alert(`Please finish recordings:\n` +
+                (missing.length? `Missing: ${missing.join(", ")}.\n`: "") +
+                (tooShort.length? `Too short: ${tooShort.join(", ")}.`: ""));
+          return;
+        }
+
+        try{
+          const uploads = [];
+          for(const k of Object.keys(assign.lines)){
+            const emotion = k.charAt(0).toUpperCase() + k.slice(1);
+            const hid = document.getElementById(`hid_${emotion}`);
+            const { base64, mimeType } = JSON.parse(hid.value);
+            uploads.push(fetch(API,{
+              method:"POST",
+              headers:{"Content-Type":"application/json"},
+              body: JSON.stringify({ participant_id: pid, emotion, base64, mimeType })
+            }).then(r=>r.json()));
+          }
+          await Promise.all(uploads);
+          msg.textContent = "Uploaded ✓";
+          msg.className = "ok";
+          document.body.scrollIntoView({behavior:"smooth",block:"start"});
+        }catch(e){
+          msg.textContent = "";
+          alert("Upload failed. Please try again. PID: "+pid);
+          console.error(e);
+        }
+      };
     })();
   </script>
 </body>
