@@ -5,6 +5,8 @@
   <title>Emotion Reading Task</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="stylesheet" href="https://unpkg.com/survey-core@1.10.0/modern.min.css">
+  <!-- jQuery MUST be loaded before survey-jquery -->
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
   <script src="https://unpkg.com/survey-core@1.10.0/survey.core.min.js"></script>
   <script src="https://unpkg.com/survey-jquery@1.10.0/survey.jquery.min.js"></script>
   <style>
@@ -13,6 +15,7 @@
     .rec button{margin-right:8px;}
     .linebox{padding:10px 12px;border-left:4px solid #ccc;background:#f7f7f7;margin:8px 0;}
     .hint{margin:6px 0 0;color:#666;font-size:0.95em;}
+    .error{color:#b00020;background:#fdecee;padding:12px;border-left:4px solid #b00020;}
   </style>
 </head>
 <body>
@@ -22,168 +25,180 @@
   <script type="module">
     const API = "https://script.google.com/macros/s/AKfycbwq970N9tIv10WxcmU-CQCHxWexIQRDfUTHbtYynhuglic3jYB4BnLK8Lz2h2fwe6Si/exec";
 
-    // ---- assignment (token-based) ----
     async function getAssignment() {
       const saved = localStorage.getItem("survey_token") || "";
       const url = saved ? `${API}?token=${encodeURIComponent(saved)}` : API;
       const r = await fetch(url);
-      if (!r.ok) throw new Error("Assignment API error");
+      if (!r.ok) throw new Error(`Assignment API error (${r.status})`);
       const data = await r.json();
       if (data.token && data.token !== saved) localStorage.setItem("survey_token", data.token);
+      if (!data.lines) throw new Error(data.error || "No lines returned");
       return data;
     }
 
-    const assign = await getAssignment();
+    (async () => {
+      let assign;
+      try {
+        assign = await getAssignment();
+      } catch (e) {
+        document.getElementById("surveyContainer").innerHTML =
+          `<div class="error"><b>Couldn’t load tasks.</b> ${String(e)}</div>`;
+        console.error(e);
+        return;
+      }
 
-    const instr = {
-      Happy:    "Please record yourself reading the following with a <b>happy, joyful tone</b>:",
-      Sad:      "Please record yourself reading the following with a <b>sad, subdued tone</b>:",
-      Surprised:"Please record yourself reading the following with a <b>surprised tone</b>:",
-      Angry:    "Please record yourself reading the following with an <b>angry tone</b>:",
-      Neutral:  "Please record yourself reading the following in a <b>calm, neutral tone</b>:"
-    };
-
-    const elements = [
-      { type:"html", html:`<p><b>Participant ID:</b> ${assign.participant_id}</p>` }
-    ];
-
-    for (const [emotion, line] of Object.entries(assign.lines)) {
-      const nice = emotion.charAt(0).toUpperCase() + emotion.slice(1);
-      const id = `rec_${nice}`;
-      elements.push(
-        {
-          type:"html",
-          name:id+"_text",
-          html: `
-            <h3>${nice}</h3>
-            <p>${instr[nice] || "Please record yourself reading:"}</p>
-            <div class="linebox">${line || "(no text found)"}</div>
-            <p class="hint"><i>row = PID, sheet = '${nice}'</i></p>
-          `
-        },
-        {
-          type:"html",
-          name:id,
-          html: `
-            <div class="rec" data-emotion="${nice}">
-              <button type="button" id="${id}_btn">🎤 Start</button>
-              <span id="${id}_status"></span><br>
-              <audio id="${id}_player" controls></audio>
-              <input type="hidden" id="${id}_data">
-            </div>
-          `
-        }
-      );
-    }
-
-    elements.push({ type:"text", name:"participant_id", defaultValue:String(assign.participant_id), visible:false });
-
-    const surveyJSON = { showProgressBar:"top", pages:[{ elements }] };
-    const survey = new Survey.Model(surveyJSON);
-    Survey.StylesManager.applyTheme("modern");
-    document.getElementById("surveyContainer").Survey({ model: survey });
-
-    // ---- attach recorder logic after render ----
-    survey.onAfterRenderQuestion.add((_, options) => {
-      const el = options.htmlElement;
-      const qname = options.question.name;
-      if (!qname.startsWith("rec_")) return;
-
-      const emotion = el.querySelector(".rec")?.dataset?.emotion;
-      if (!emotion) return;
-
-      const btn    = el.querySelector(`#${qname}_btn`);
-      const status = el.querySelector(`#${qname}_status`);
-      const player = el.querySelector(`#${qname}_player`);
-      const hidden = el.querySelector(`#${qname}_data`);
-
-      let rec, chunks=[], stream, startTime;
-
-      btn.onclick = async () => {
-        if (!rec || rec.state === "inactive") {
-          try {
-            stream = await navigator.mediaDevices.getUserMedia({audio:true});
-            rec = new MediaRecorder(stream);
-            chunks = [];
-            rec.ondataavailable = e => chunks.push(e.data);
-            rec.onstart = () => { startTime = Date.now(); };
-            rec.onstop = async () => {
-              const dur = (Date.now() - startTime)/1000;
-              if (dur < 3) {
-                status.textContent = ` Recording too short (${dur.toFixed(1)}s). Please record at least 3s.`;
-                btn.textContent = "🎤 Re-record";
-                if (stream) stream.getTracks().forEach(t=>t.stop());
-                return;
-              }
-              const blob = new Blob(chunks, { type: rec.mimeType || "audio/webm" });
-              player.src = URL.createObjectURL(blob);
-              const buf = await blob.arrayBuffer();
-              const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
-              hidden.value = JSON.stringify({ base64: b64, mimeType: blob.type || "audio/webm", duration: dur });
-              status.textContent = ` Recorded ✓ (${dur.toFixed(1)}s)`;
-              if (stream) stream.getTracks().forEach(t=>t.stop());
-            };
-            rec.start();
-            btn.textContent = "⏹ Stop";
-            status.textContent = " Recording…";
-          } catch (err) {
-            alert("Microphone blocked. Please allow mic access.");
-          }
-        } else if (rec.state === "recording") {
-          rec.stop();
-          btn.textContent = "🎤 Re-record";
-        }
+      const instr = {
+        Happy:    "Please record yourself reading the following with a <b>happy, joyful tone</b>:",
+        Sad:      "Please record yourself reading the following with a <b>sad, subdued tone</b>:",
+        Surprised:"Please record yourself reading the following with a <b>surprised tone</b>:",
+        Angry:    "Please record yourself reading the following with an <b>angry tone</b>:",
+        Neutral:  "Please record yourself reading the following in a <b>calm, neutral tone</b>:"
       };
-    });
 
-    // ---- require all recordings (≥3 s) before submit ----
-    survey.onCompleting.add((sender, options) => {
-      const tooShort = [], missing = [];
-      for (const emotion of Object.keys(assign.lines)) {
+      const elements = [
+        { type:"html", html:`<p><b>Participant ID:</b> ${assign.participant_id}</p>` }
+      ];
+
+      for (const [emotion, line] of Object.entries(assign.lines)) {
         const nice = emotion.charAt(0).toUpperCase() + emotion.slice(1);
-        const hidden = document.getElementById(`rec_${nice}_data`);
-        if (!hidden || !hidden.value) { missing.push(nice); continue; }
-        try {
-          const { duration } = JSON.parse(hidden.value);
-          if (duration < 3) tooShort.push(`${nice} (${duration.toFixed(1)} s)`);
-        } catch {}
-      }
-      if (missing.length || tooShort.length) {
-        options.allow = false;
-        let msg = "";
-        if (missing.length) msg += "Missing: " + missing.join(", ") + ". ";
-        if (tooShort.length) msg += "Too short: " + tooShort.join(", ") + ".";
-        alert("Please fix these recordings before submitting:\n" + msg);
-      }
-    });
-
-    // ---- upload recordings ----
-    survey.onComplete.add(async s => {
-      const pid = s.data.participant_id;
-      const uploads = [];
-
-      for (const emotion of Object.keys(assign.lines)) {
-        const nice = emotion.charAt(0).toUpperCase() + emotion.slice(1);
-        const hidden = document.getElementById(`rec_${nice}_data`);
-        if (!hidden || !hidden.value) continue;
-        const { base64, mimeType } = JSON.parse(hidden.value);
-        uploads.push(
-          fetch(API, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ participant_id: pid, emotion: nice, base64, mimeType })
-          }).then(r => r.json())
+        const id = `rec_${nice}`;
+        elements.push(
+          {
+            type:"html",
+            name:id+"_text",
+            html: `
+              <h3>${nice}</h3>
+              <p>${instr[nice] || "Please record yourself reading:"}</p>
+              <div class="linebox">${line || "(no text found)"}</div>
+              <p class="hint"><i>row = PID, sheet = '${nice}'</i></p>
+            `
+          },
+          {
+            type:"html",
+            name:id,
+            html: `
+              <div class="rec" data-emotion="${nice}">
+                <button type="button" id="${id}_btn">🎤 Start</button>
+                <span id="${id}_status"></span><br>
+                <audio id="${id}_player" controls></audio>
+                <input type="hidden" id="${id}_data">
+              </div>
+            `
+          }
         );
       }
 
-      try {
-        await Promise.all(uploads);
-        document.body.innerHTML = `<h2>Thanks!</h2><p>Your recordings were uploaded successfully.<br>Participant ID: <b>${pid}</b></p>`;
-      } catch (e) {
-        alert("Upload failed. Please contact us with your PID: "+pid);
-        console.error(e);
-      }
-    });
+      elements.push({ type:"text", name:"participant_id", defaultValue:String(assign.participant_id), visible:false });
+
+      const surveyJSON = { showProgressBar:"top", pages:[{ elements }] };
+      const survey = new Survey.Model(surveyJSON);
+      Survey.StylesManager.applyTheme("modern");
+
+      // Use jQuery renderer (now that jQuery is loaded):
+      $("#surveyContainer").Survey({ model: survey });
+
+      // Attach recorder logic after render
+      survey.onAfterRenderQuestion.add((_, options) => {
+        const el = options.htmlElement;
+        const qname = options.question.name;
+        if (!qname.startsWith("rec_")) return;
+
+        const emotion = el.querySelector(".rec")?.dataset?.emotion;
+        if (!emotion) return;
+
+        const btn    = el.querySelector(`#${qname}_btn`);
+        const status = el.querySelector(`#${qname}_status`);
+        const player = el.querySelector(`#${qname}_player`);
+        const hidden = el.querySelector(`#${qname}_data`);
+
+        let rec, chunks=[], stream, startTime;
+
+        btn.onclick = async () => {
+          if (!rec || rec.state === "inactive") {
+            try {
+              stream = await navigator.mediaDevices.getUserMedia({audio:true});
+              rec = new MediaRecorder(stream);
+              chunks = [];
+              rec.ondataavailable = e => chunks.push(e.data);
+              rec.onstart = () => { startTime = Date.now(); };
+              rec.onstop = async () => {
+                const dur = (Date.now() - startTime)/1000;
+                if (dur < 3) {
+                  status.textContent = ` Recording too short (${dur.toFixed(1)}s). Please record at least 3s.`;
+                  btn.textContent = "🎤 Re-record";
+                  if (stream) stream.getTracks().forEach(t=>t.stop());
+                  return;
+                }
+                const blob = new Blob(chunks, { type: rec.mimeType || "audio/webm" });
+                player.src = URL.createObjectURL(blob);
+                const buf = await blob.arrayBuffer();
+                const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+                hidden.value = JSON.stringify({ base64: b64, mimeType: blob.type || "audio/webm", duration: dur });
+                status.textContent = ` Recorded ✓ (${dur.toFixed(1)}s)`;
+                if (stream) stream.getTracks().forEach(t=>t.stop());
+              };
+              rec.start();
+              btn.textContent = "⏹ Stop";
+              status.textContent = " Recording…";
+            } catch (err) {
+              alert("Microphone blocked. Please allow mic access.");
+            }
+          } else if (rec.state === "recording") {
+            rec.stop();
+            btn.textContent = "🎤 Re-record";
+          }
+        };
+      });
+
+      // Require all recordings (≥3s) before submit
+      survey.onCompleting.add((sender, options) => {
+        const tooShort = [], missing = [];
+        for (const emotion of Object.keys(assign.lines)) {
+          const nice = emotion.charAt(0).toUpperCase() + emotion.slice(1);
+          const hidden = document.getElementById(`rec_${nice}_data`);
+          if (!hidden || !hidden.value) { missing.push(nice); continue; }
+          try {
+            const { duration } = JSON.parse(hidden.value);
+            if (duration < 3) tooShort.push(`${nice} (${duration.toFixed(1)} s)`);
+          } catch {}
+        }
+        if (missing.length || tooShort.length) {
+          options.allow = false;
+          let msg = "";
+          if (missing.length) msg += "Missing: " + missing.join(", ") + ". ";
+          if (tooShort.length) msg += "Too short: " + tooShort.join(", ") + ".";
+          alert("Please fix these recordings before submitting:\n" + msg);
+        }
+      });
+
+      // Upload recordings
+      survey.onComplete.add(async s => {
+        const pid = s.data.participant_id;
+        const uploads = [];
+
+        for (const emotion of Object.keys(assign.lines)) {
+          const nice = emotion.charAt(0).toUpperCase() + emotion.slice(1);
+          const hidden = document.getElementById(`rec_${nice}_data`);
+          if (!hidden || !hidden.value) continue;
+          const { base64, mimeType } = JSON.parse(hidden.value);
+          uploads.push(
+            fetch(API, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ participant_id: pid, emotion: nice, base64, mimeType })
+            }).then(r => r.json())
+          );
+        }
+
+        try {
+          await Promise.all(uploads);
+          document.body.innerHTML = `<h2>Thanks!</h2><p>Your recordings were uploaded successfully.<br>Participant ID: <b>${pid}</b></p>`;
+        } catch (e) {
+          alert("Upload failed. Please contact us with your PID: "+pid);
+          console.error(e);
+        }
+      });
+    })();
   </script>
 </body>
 </html>
